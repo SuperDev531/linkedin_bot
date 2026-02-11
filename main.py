@@ -1,15 +1,21 @@
 import csv
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
-from typing import Iterable, List, Set
+from typing import Iterable, List, Optional, Set
 
 from dotenv import load_dotenv
 import requests
 
 load_dotenv()
 from bs4 import BeautifulSoup
+
+# LinkedIn session cookie names (as sent by browser)
+LI_AT_COOKIE_NAME = "li_at"
+JSESSIONID_COOKIE_NAME = "JSESSIONID"
+LINKEDIN_DOMAIN = ".linkedin.com"
 
 SEARCH_URL = (
     "https://www.linkedin.com/jobs/search/"
@@ -27,13 +33,48 @@ USER_AGENT = (
 )
 
 
+def _get_env(name: str) -> Optional[str]:
+    """Read and strip an env var. Returns None if unset or empty."""
+    val = os.environ.get(name)
+    return val.strip() if val else None
+
+
+def create_linkedin_session() -> requests.Session:
+    """
+    Build an authenticated LinkedIn session using LI_AT and JSESSIONID from
+    the environment. Behaves as if the user is logged in.
+    Raises SystemExit if required tokens are missing.
+    """
+    li_at = _get_env("LI_AT")
+    jsessionid = _get_env("JSESSIONID")
+    print(li_at, jsessionid)
+
+    if not li_at:
+        print(
+            "Error: LI_AT is required for LinkedIn authentication. "
+            "Set LI_AT in your .env file (copy from browser cookies at linkedin.com).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    session = requests.Session()
+    session.headers["User-Agent"] = USER_AGENT
+
+    # Set auth cookies for linkedin.com (li_at is the main session token)
+    session.cookies.set(LI_AT_COOKIE_NAME, li_at, domain=LINKEDIN_DOMAIN)
+    if jsessionid:
+        session.cookies.set(JSESSIONID_COOKIE_NAME, jsessionid, domain=LINKEDIN_DOMAIN)
+
+    return session
+
+
 @dataclass
 class JobResult:
     url: str
     company_name: str = ""
 
 
-def normalize_job_url(url: str) -> str:
+def normalize_job_url(url: str) -> str:add
     if url.startswith("/"):
         url = "https://www.linkedin.com" + url
     base = url.split("?")[0].split("#")[0]
@@ -238,7 +279,7 @@ def append_jobs_to_csv(jobs: Iterable[JobResult], csv_path: str) -> None:
 
 
 def collect_recent_remote_engineer_jobs(limit_pages: int = 1) -> List[JobResult]:
-    session = requests.Session()
+    session = create_linkedin_session()
     all_job_urls: Set[str] = set()
 
     for page in range(limit_pages):        
@@ -362,7 +403,7 @@ def main() -> None:
         print(f"\nNext run in {INTERVAL_SECONDS // 60} minutes...\n")
         time.sleep(INTERVAL_SECONDS)
 
-
+ 
 if __name__ == "__main__":
     main()
 
